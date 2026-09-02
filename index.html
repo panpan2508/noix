@@ -106,6 +106,24 @@
   .cart-total .l{font-weight:600}
   .cart-total .p{font-family:'Fraunces',serif;font-weight:700;font-size:1.6rem;color:var(--husk-d)}
 
+  .lookup-bar{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;padding:13px 16px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line-strong);box-shadow:var(--shadow);color:var(--ink);font-family:inherit;font-size:.94rem}
+  .lookup-bar:hover{background:var(--surface-2)}
+  .lookup-bar span{display:flex;align-items:center;gap:9px}
+  .lookup-bar span b{font-weight:700}
+  .lookup-bar svg{width:18px;height:18px;color:var(--husk-d)}
+  .lookup-bar .chev{width:18px;height:18px;color:var(--ink-soft)}
+  .lk-group{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--surface-2)}
+  .lk-group .lk-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+  .lk-group .lk-date{font-size:.78rem;color:var(--ink-soft)}
+  .lk-group .lk-tot{font-family:'Fraunces',serif;font-weight:700}
+  .lk-line{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;font-size:.9rem;border-top:1px solid var(--line)}
+  .lk-line:first-of-type{border-top:none}
+  .lk-line .lk-d{color:var(--ink-soft)}
+  .lk-badges{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .lk-badge{font-size:.76rem;font-weight:700;padding:3px 9px;border-radius:999px}
+  .lk-badge.ok{background:var(--husk-tint);color:var(--husk-d)}
+  .lk-badge.wait{background:var(--amber-tint);color:var(--amber)}
+  .lk-empty{text-align:center;color:var(--ink-soft);font-size:.92rem;padding:18px;border:1px dashed var(--line-strong);border-radius:12px}
   .producer-link{text-align:center;margin-top:22px;padding-bottom:8px}
   .producer-link button{color:var(--ink-soft);font-size:.85rem;font-weight:600;text-decoration:underline;text-underline-offset:3px}
   .producer-link button:hover{color:var(--ink)}
@@ -180,6 +198,8 @@
   .icon-btn:hover{background:var(--line);color:var(--ink)}
   .icon-btn svg{width:16px;height:16px}
   .icon-btn.del:hover{background:var(--red-tint);color:var(--red);border-color:var(--red)}
+  a.icon-btn{text-decoration:none}
+  .icon-btn.sms:hover{background:var(--husk-tint);color:var(--husk-d);border-color:var(--husk)}
 
   .empty{text-align:center;padding:48px 20px;color:var(--ink-soft);background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r)}
   .empty svg{width:44px;height:44px;opacity:.35;margin-bottom:10px}
@@ -255,6 +275,11 @@
 
   <div class="tariffs" id="tariffs"></div>
 
+  <button class="lookup-bar" id="openLookup">
+    <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg> Déjà commandé ? <b>Retrouver mes commandes</b></span>
+    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+  </button>
+
   <!-- Formulaire -->
   <div id="clientForm">
     <div class="card">
@@ -268,8 +293,9 @@
         <input type="text" id="cName" placeholder="Ex. Farès Zaroui" autocomplete="name">
       </div>
       <div class="field">
-        <label for="cPhone">Téléphone <span class="opt">(pour vous prévenir)</span></label>
-        <input type="tel" id="cPhone" placeholder="06 …" inputmode="tel" autocomplete="tel">
+        <label for="cPhone">Téléphone portable</label>
+        <input type="tel" id="cPhone" placeholder="06 12 34 56 78" inputmode="tel" autocomplete="tel">
+        <p class="price-note" style="margin-top:6px">Nécessaire pour vous prévenir et pour retrouver votre commande plus tard.</p>
       </div>
     </div>
 
@@ -467,6 +493,21 @@
   </div>
 </div>
 
+<!-- Modale « Retrouver mes commandes » (client) -->
+<div class="overlay" id="lookupOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>Mes commandes</h3><button class="close" id="closeLookup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body">
+      <p class="price-note" style="margin-top:0;font-size:.9rem">Entrez le numéro de téléphone utilisé lors de votre commande.</p>
+      <div class="field" style="margin-top:12px">
+        <input type="tel" id="lookupPhone" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78">
+      </div>
+      <button class="btn btn-primary btn-lg" id="lookupBtn" style="margin-top:6px">Rechercher</button>
+      <div id="lookupResults" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Modale code d'accès (gate) -->
 <div class="overlay" id="gateOverlay">
   <div class="modal small">
@@ -645,10 +686,11 @@
   function cSubmit(){
     var name=document.getElementById('cName').value.trim();
     if(!name){ toast('Indiquez votre nom'); document.getElementById('cName').focus(); return; }
+    var phone=document.getElementById('cPhone').value.trim();
+    if(cleanPhone(phone).replace(/^\+/,'').length<9){ toast('Indiquez un numéro de téléphone valide'); document.getElementById('cPhone').focus(); return; }
     if(state.cart.length===0){ toast('Ajoutez au moins un produit'); return; }
     if(!canSave()){ toast('Envoi indisponible sur cet aperçu'); return; }
     var ent=document.getElementById('cEntreprise').value.trim();
-    var phone=document.getElementById('cPhone').value.trim();
     var note=document.getElementById('cNote').value.trim();
     var group='g'+Date.now();
     var total=0;
@@ -679,6 +721,44 @@
     document.getElementById('clientDone').classList.add('hidden');
     document.getElementById('clientForm').classList.remove('hidden');
     window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  /* ---------- Retrouver mes commandes (client) ---------- */
+  function openLookup(){
+    document.getElementById('lookupPhone').value=document.getElementById('cPhone').value.trim();
+    document.getElementById('lookupResults').innerHTML='';
+    document.getElementById('lookupOverlay').classList.add('show');
+    setTimeout(function(){ document.getElementById('lookupPhone').focus(); },60);
+  }
+  function closeLookup(){ document.getElementById('lookupOverlay').classList.remove('show'); }
+  async function doLookup(){
+    var res=document.getElementById('lookupResults');
+    var key=cleanPhone(document.getElementById('lookupPhone').value).replace(/^\+/,'');
+    if(key.length<9){ res.innerHTML='<div class="lk-empty">Entrez un numéro de téléphone valide.</div>'; return; }
+    res.innerHTML='<div class="lk-empty">Recherche…</div>';
+    await refreshOrders();
+    var mine=state.orders.filter(function(o){ return cleanPhone(o.phone).replace(/^\+/,'')===key; });
+    if(mine.length===0){ res.innerHTML='<div class="lk-empty">Aucune commande trouvée pour ce numéro.<br>Vérifiez le numéro saisi lors de la commande.</div>'; return; }
+    renderLookup(mine);
+  }
+  function renderLookup(list){
+    var groups={}, order=[];
+    list.forEach(function(o){ var g=o.group||o.id; if(!groups[g]){ groups[g]={date:o.date||'',items:[]}; order.push(g); } groups[g].items.push(o); if((o.date||'')>groups[g].date) groups[g].date=o.date||''; });
+    order.sort(function(a,b){ return (groups[b].date||'').localeCompare(groups[a].date||''); });
+    var html=order.map(function(g){
+      var grp=groups[g], tot=0;
+      var lines=grp.items.map(function(o){
+        tot+=orderPrice(o);
+        var lb=o.livre?'<span class="lk-badge ok">✓ Livré</span>':'<span class="lk-badge wait">En préparation</span>';
+        var pb=o.paye?'<span class="lk-badge ok">✓ Payé</span>':'<span class="lk-badge wait">À régler</span>';
+        return '<div class="lk-line"><span><b>'+typeLabel(o.type)+'</b> <span class="lk-d">'+esc(descOf(o))+'</span></span><span>'+euro(orderPrice(o))+'</span></div>'+
+               '<div class="lk-badges">'+lb+pb+'</div>';
+      }).join('');
+      var d=grp.date?new Date(grp.date):null;
+      var ds=d&&!isNaN(d)?d.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}):'';
+      return '<div class="lk-group"><div class="lk-top"><span class="lk-date">'+(ds?'Commande du '+ds:'Commande')+'</span><span class="lk-tot">'+euro(tot)+'</span></div>'+lines+'</div>';
+    }).join('');
+    document.getElementById('lookupResults').innerHTML=html;
   }
 
   /* ============ VUE ADMIN ============ */
@@ -730,12 +810,21 @@
     }
     list.innerHTML=items.map(orderRow).join('');
   }
+  function smsSvg(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.6 8.6 0 0 1-4-1L3 20l1-5.5a8.5 8.5 0 1 1 17-3Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></svg>'; }
+  function cleanPhone(p){ p=String(p||'').replace(/[^0-9+]/g,''); return p; }
+  function smsHref(o){
+    var num=cleanPhone(o.phone);
+    var prenom=(o.client||'').trim().split(' ')[0]||'';
+    var msg='Bonjour '+prenom+', c\'est Les Noix de la Petite Ville. Votre commande de noix est prête, on peut convenir d\'un moment pour vous la remettre. Merci !';
+    return 'sms:'+num+'?&body='+encodeURIComponent(msg);
+  }
   function orderRow(o){
     var isNew=o.source==='client'&&!o.seen;
     var ent=o.entreprise?'<span class="ent">'+esc(o.entreprise)+'</span>':'';
     var np=isNew?'<span class="newpill">Nouveau</span>':'';
     var phone=o.phone?'<span class="sep">•</span>'+esc(o.phone):'';
     var note=o.note?'<span class="sep">•</span>'+esc(o.note):'';
+    var smsBtn=o.phone?'<a class="icon-btn sms" href="'+smsHref(o)+'" title="Prévenir par SMS">'+smsSvg()+'</a>':'';
     return '<div class="order'+(isNew?' isnew':'')+'" data-id="'+o.id+'">'+
       '<div class="tag '+o.type+'">'+tagSvg(o.type)+'</div>'+
       '<div class="o-main"><div class="name">'+esc(o.client||'Sans nom')+ent+np+'</div>'+
@@ -744,6 +833,7 @@
       '<div class="o-actions">'+
         '<button class="toggle '+(o.livre?'on-livre':'')+'" data-act="livre" data-id="'+o.id+'">'+(o.livre?checkSvg()+'Livré':'À livrer')+'</button>'+
         '<button class="toggle '+(o.paye?'on-paye':'')+'" data-act="paye" data-id="'+o.id+'">'+(o.paye?checkSvg()+'Payé':'Non payé')+'</button>'+
+        smsBtn+
         '<button class="icon-btn" data-act="edit" data-id="'+o.id+'" title="Modifier">'+editSvg()+'</button>'+
         '<button class="icon-btn del" data-act="del" data-id="'+o.id+'" title="Supprimer">'+trashSvg()+'</button>'+
       '</div></div>';
@@ -892,6 +982,11 @@
     document.getElementById('cSubmit').addEventListener('click',cSubmit);
     document.getElementById('cAgain').addEventListener('click',cReset);
     document.getElementById('toProducer').addEventListener('click',goProducer);
+    document.getElementById('openLookup').addEventListener('click',openLookup);
+    document.getElementById('closeLookup').addEventListener('click',closeLookup);
+    document.getElementById('lookupBtn').addEventListener('click',doLookup);
+    document.getElementById('lookupPhone').addEventListener('keydown',function(e){ if(e.key==='Enter') doLookup(); });
+    document.getElementById('lookupOverlay').addEventListener('click',function(e){ if(e.target===this) closeLookup(); });
 
     // gate
     document.getElementById('gateOk').addEventListener('click',submitGate);
@@ -923,7 +1018,7 @@
     document.getElementById('btnExport').addEventListener('click',exportCSV);
     document.getElementById('btnPreview').addEventListener('click',enterPreview);
     document.getElementById('exitPreview').addEventListener('click',exitPreview);
-    document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ closeOrder(); closeSettings(); closeGate(); } });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ closeOrder(); closeSettings(); closeGate(); closeLookup(); } });
   }
 
   async function init(){
