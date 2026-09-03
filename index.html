@@ -239,6 +239,12 @@
 
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--surface);padding:12px 20px;border-radius:11px;font-size:.9rem;font-weight:500;box-shadow:0 10px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:all .25s ease;z-index:100}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .spin{width:22px;height:22px;flex:none;border:3px solid var(--line-strong);border-top-color:var(--husk);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loader{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(239,230,211,.55);backdrop-filter:blur(2px);z-index:200}
+  #loader.show{display:flex}
+  #loader .box{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 24px;display:flex;align-items:center;gap:14px;box-shadow:var(--shadow);font-weight:600;color:var(--ink)}
+  .lk-spin{display:flex;align-items:center;justify-content:center;gap:12px;padding:20px;color:var(--ink-soft);font-weight:600}
 
   @media(max-width:760px){
     .stats{grid-template-columns:repeat(2,1fr)}
@@ -523,6 +529,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="loader"><div class="box"><div class="spin"></div><span>Chargement…</span></div></div>
 
 <script>
 (function(){
@@ -735,7 +742,7 @@
     var res=document.getElementById('lookupResults');
     var key=cleanPhone(document.getElementById('lookupPhone').value).replace(/^\+/,'');
     if(key.length<9){ res.innerHTML='<div class="lk-empty">Entrez un numéro de téléphone valide.</div>'; return; }
-    res.innerHTML='<div class="lk-empty">Recherche…</div>';
+    res.innerHTML='<div class="lk-spin"><div class="spin"></div><span>Recherche…</span></div>';
     await refreshOrders();
     var mine=state.orders.filter(function(o){ return cleanPhone(o.phone).replace(/^\+/,'')===key; });
     if(mine.length===0){ res.innerHTML='<div class="lk-empty">Aucune commande trouvée pour ce numéro.<br>Vérifiez le numéro saisi lors de la commande.</div>'; return; }
@@ -937,7 +944,7 @@
 
   /* ---------- Bascule des vues ---------- */
   function showClientView(){ state.preview=false; document.getElementById('adminView').classList.add('hidden'); document.getElementById('previewBanner').classList.add('hidden'); document.getElementById('toProducer').parentElement.classList.remove('hidden'); document.getElementById('clientView').classList.remove('hidden'); window.scrollTo(0,0); }
-  function showAdminView(){ state.preview=false; document.getElementById('previewBanner').classList.add('hidden'); document.getElementById('toProducer').parentElement.classList.remove('hidden'); document.getElementById('clientView').classList.add('hidden'); document.getElementById('adminView').classList.remove('hidden'); refreshOrders().then(renderAdmin); window.scrollTo(0,0); }
+  function showAdminView(){ state.preview=false; document.getElementById('previewBanner').classList.add('hidden'); document.getElementById('toProducer').parentElement.classList.remove('hidden'); document.getElementById('clientView').classList.add('hidden'); document.getElementById('adminView').classList.remove('hidden'); if(DB.useApi()) showLoader(); Promise.resolve(refreshOrders()).then(function(){ renderAdmin(); if(DB.useApi()) hideLoader(); }); window.scrollTo(0,0); }
   function enterPreview(){ state.preview=true; document.getElementById('adminView').classList.add('hidden'); document.getElementById('clientView').classList.remove('hidden'); document.getElementById('previewBanner').classList.remove('hidden'); document.getElementById('toProducer').parentElement.classList.add('hidden'); window.scrollTo(0,0); }
   function exitPreview(){ showAdminView(); }
   function goProducer(){ if(state.isAdmin){ showAdminView(); } else { openGate(); } }
@@ -969,6 +976,11 @@
   /* ---------- Toast ---------- */
   var toastTimer;
   function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(function(){ t.classList.remove('show'); },2200); }
+
+  /* ---------- Loader ---------- */
+  var _busy=0;
+  function showLoader(){ _busy++; document.getElementById('loader').classList.add('show'); }
+  function hideLoader(){ _busy=Math.max(0,_busy-1); if(_busy===0) document.getElementById('loader').classList.remove('show'); }
 
   /* ---------- Branchements ---------- */
   function bind(){
@@ -1023,7 +1035,8 @@
 
   async function init(){
     bind();
-    await load();
+    if(DB.useApi()) showLoader();
+    try{ await load(); }finally{ if(DB.useApi()) hideLoader(); }
     renderTariffs(); cSyncType(); cUpdatePrice(); renderCart();
     var sub=document.getElementById('subtitle');
     sub.textContent = DB.useApi() ? 'Connecté à votre base Google Sheets.' : (hasStorage ? 'Les commandes clients arrivent ici automatiquement.' : 'Attention : sauvegarde indisponible ici (aperçu).');
