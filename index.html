@@ -548,7 +548,7 @@
   var hasStorage = typeof window!=='undefined' && window.storage && typeof window.storage.get==='function';
 
   var state = {
-    orders:[], prices:Object.assign({},DEFAULT_PRICES), pin:null,
+    orders:[], prices:Object.assign({},DEFAULT_PRICES), hasPin:false, sessionPin:null,
     isAdmin:false, preview:false,
     filterType:'tous', filterStatus:null, search:'',
     editingId:null,
@@ -563,17 +563,29 @@
      (add/update/delete) pour ne pas écraser les commandes d'autres clients. */
   var DB = {
     useApi:function(){ return !!API_URL; },
-    async load(){
+    // PUBLIC : tarifs + existence d'un code. Ne récupère JAMAIS la liste des commandes.
+    async loadPublic(){
       if(this.useApi()){
         var r=await fetch(API_URL+(API_URL.indexOf('?')>-1?'&':'?')+'t='+Date.now(), {method:'GET', cache:'no-store'});
         var d=await r.json();
-        return { orders:d.orders||[], prices:d.prices||null, pin:(d.pin!=null?String(d.pin):null) };
+        return { prices:d.prices||null, hasPin:!!d.hasPin };
       }
-      var out={orders:[],prices:null,pin:null};
+      var out={prices:null,hasPin:false};
       try{ var p=await window.storage.get(K_PRICES,true); if(p&&p.value) out.prices=JSON.parse(p.value); }catch(e){}
-      try{ var o=await window.storage.get(K_ORDERS,true); if(o&&o.value) out.orders=JSON.parse(o.value); }catch(e){}
-      try{ var pin=await window.storage.get(K_PIN,true); if(pin&&pin.value) out.pin=pin.value; }catch(e){}
+      try{ var pin=await window.storage.get(K_PIN,true); if(pin&&pin.value) out.hasPin=true; }catch(e){}
       return out;
+    },
+    // PROTÉGÉ : liste complète des commandes, nécessite le code producteur.
+    async loadOrders(code){
+      if(this.useApi()){ var d=await this._post({action:'list',pin:code}); return (d&&d.ok)?(d.orders||[]):null; }
+      try{ var o=await window.storage.get(K_ORDERS,true); return (o&&o.value)?JSON.parse(o.value):[]; }catch(e){ return []; }
+    },
+    // PUBLIC : uniquement les commandes d'un numéro, filtrées côté serveur.
+    async myOrders(phone){
+      if(this.useApi()){ var d=await this._post({action:'myorders',phone:phone}); return (d&&d.orders)?d.orders:[]; }
+      var all=[]; try{ var o=await window.storage.get(K_ORDERS,true); if(o&&o.value) all=JSON.parse(o.value); }catch(e){}
+      var key=cleanPhone(phone).replace(/^\+/,'');
+      return all.filter(function(x){ return cleanPhone(x.phone).replace(/^\+/,'')===key; });
     },
     // POST en "requête simple" (text/plain) pour éviter le pré-vol CORS d'Apps Script
     async _post(payload){
@@ -582,26 +594,40 @@
     },
     async _blobOrders(){ try{ await window.storage.set(K_ORDERS,JSON.stringify(state.orders),true); }catch(e){ toast('Sauvegarde impossible'); } },
     add(o){    return this.useApi()? this._post({action:'add',order:o})    : this._blobOrders(); },
-    update(o){ return this.useApi()? this._post({action:'update',order:o}) : this._blobOrders(); },
-    remove(id){return this.useApi()? this._post({action:'delete',id:id})    : this._blobOrders(); },
-    async setPrices(p){ if(this.useApi()) return this._post({action:'prices',prices:p}); try{ await window.storage.set(K_PRICES,JSON.stringify(p),true);}catch(e){} },
-    async setPin(pin){ if(this.useApi()) return this._post({action:'pin',pin:pin}); try{ await window.storage.set(K_PIN,pin,true);}catch(e){} }
+    update(o){ return this.useApi()? this._post({action:'update',order:o,pin:state.sessionPin}) : this._blobOrders(); },
+    remove(id){return this.useApi()? this._post({action:'delete',id:id,pin:state.sessionPin}) : this._blobOrders(); },
+    async setPrices(p){ if(this.useApi()) return this._post({action:'prices',prices:p,pin:state.sessionPin}); try{ await window.storage.set(K_PRICES,JSON.stringify(p),true);}catch(e){} },
+    // Vérifie le code côté serveur : le vrai code ne descend jamais dans le navigateur.
+    async checkPin(code){
+      if(this.useApi()) return this._post({action:'checkpin',pin:code});
+      try{ var p=await window.storage.get(K_PIN,true); var real=(p&&p.value)?String(p.value):''; if(real==='') return {ok:false,noPin:true}; return {ok:String(code)===real}; }catch(e){ return {ok:false,noPin:true}; }
+    },
+    // Change le code : exige l'ancien côté serveur.
+    async setPin(oldPin,newPin){
+      if(this.useApi()) return this._post({action:'pin',old:oldPin,pin:newPin});
+      try{ await window.storage.set(K_PIN,String(newPin),true);}catch(e){} return {ok:true};
+    }
   };
   function canSave(){ return DB.useApi() || hasStorage; }
 
   /* ---------- Persistance ---------- */
+  // Au démarrage : on charge seulement le public (tarifs). Pas de commandes.
   async function load(){
     if(!canSave()) return;
     try{
-      var d=await DB.load();
+      var d=await DB.loadPublic();
       if(d.prices) state.prices=Object.assign({},DEFAULT_PRICES,d.prices);
-      state.orders=d.orders||[];
-      if(d.pin) state.pin=d.pin;
+      state.hasPin=!!d.hasPin;
     }catch(e){ toast('Connexion à la base impossible'); }
   }
+  // Côté producteur : recharge la liste complète avec le code.
   async function refreshOrders(){
     if(!canSave()) return;
-    try{ var d=await DB.load(); state.orders=d.orders||[]; if(d.prices) state.prices=Object.assign({},DEFAULT_PRICES,d.prices); }catch(e){}
+    try{
+      var o=await DB.loadOrders(state.sessionPin);
+      if(o===null){ toast('Session expirée, reconnectez-vous'); state.isAdmin=false; showClientView(); return; }
+      state.orders=o;
+    }catch(e){}
   }
   function persistAdd(o){    Promise.resolve(DB.add(o)).catch(function(){ toast('Erreur d\'enregistrement'); }); }
   function persistUpdate(o){ Promise.resolve(DB.update(o)).catch(function(){ toast('Erreur d\'enregistrement'); }); }
@@ -743,9 +769,10 @@
     var key=cleanPhone(document.getElementById('lookupPhone').value).replace(/^\+/,'');
     if(key.length<9){ res.innerHTML='<div class="lk-empty">Entrez un numéro de téléphone valide.</div>'; return; }
     res.innerHTML='<div class="lk-spin"><div class="spin"></div><span>Recherche…</span></div>';
-    await refreshOrders();
-    var mine=state.orders.filter(function(o){ return cleanPhone(o.phone).replace(/^\+/,'')===key; });
-    if(mine.length===0){ res.innerHTML='<div class="lk-empty">Aucune commande trouvée pour ce numéro.<br>Vérifiez le numéro saisi lors de la commande.</div>'; return; }
+    var mine=[];
+    try{ mine=await DB.myOrders(document.getElementById('lookupPhone').value); }
+    catch(e){ res.innerHTML='<div class="lk-empty">Connexion impossible. Réessayez.</div>'; return; }
+    if(!mine || mine.length===0){ res.innerHTML='<div class="lk-empty">Aucune commande trouvée pour ce numéro.<br>Vérifiez le numéro saisi lors de la commande.</div>'; return; }
     renderLookup(mine);
   }
   function renderLookup(list){
@@ -923,11 +950,19 @@
     document.getElementById('settingsOverlay').classList.add('show');
   }
   function closeSettings(){ document.getElementById('settingsOverlay').classList.remove('show'); }
-  function saveSettings(){
+  async function saveSettings(){
     state.prices={ sac:parseFloat(document.getElementById('pSac').value)||0, huileDemi:parseFloat(document.getElementById('pHuileDemi').value)||0, huileLitre:parseFloat(document.getElementById('pHuileLitre').value)||0, entiers:parseFloat(document.getElementById('pEntiers').value)||0, casses:parseFloat(document.getElementById('pCasses').value)||0 };
     DB.setPrices(state.prices);
     var np=document.getElementById('newPin').value.trim();
-    if(np){ state.pin=np; DB.setPin(np); }
+    if(np){
+      if(np.length<3){ toast('Le code doit faire au moins 3 caractères'); return; }
+      try{
+        var r=await DB.setPin(state.sessionPin, np);
+        if(r && r.ok){ state.sessionPin=np; state.hasPin=true; toast('Code d\'accès mis à jour'); }
+        else if(r && r.error==='bad_old'){ toast('Impossible de changer le code (session expirée). Reconnectez-vous.'); }
+        else { toast('Le code n\'a pas pu être changé'); }
+      }catch(e){ toast('Le code n\'a pas pu être changé'); }
+    }
     renderTariffs(); renderAdmin(); closeSettings(); toast('Réglages enregistrés');
   }
 
@@ -949,28 +984,39 @@
   function exitPreview(){ showAdminView(); }
   function goProducer(){ if(state.isAdmin){ showAdminView(); } else { openGate(); } }
 
-  /* ---------- Code d'accès (gate) ---------- */
-  var gateMode='verify';
+  /* ---------- Code d'accès (gate) — vérification 100% serveur ---------- */
   function openGate(){
     var err=document.getElementById('gateErr'); err.textContent='';
     document.getElementById('gateInput').value=''; document.getElementById('gateConfirm').value='';
-    if(!state.pin){ gateMode='create'; document.getElementById('gateTitle').textContent='Créer un code d\'accès'; document.getElementById('gateMsg').textContent='Choisissez un code pour protéger votre espace producteur. Vous en aurez besoin à chaque fois.'; document.getElementById('gateConfirmWrap').classList.remove('hidden'); document.getElementById('gateOk').textContent='Créer'; document.getElementById('gateInput').placeholder='Nouveau code'; }
-    else{ gateMode='verify'; document.getElementById('gateTitle').textContent='Espace producteur'; document.getElementById('gateMsg').textContent='Entrez votre code d\'accès.'; document.getElementById('gateConfirmWrap').classList.add('hidden'); document.getElementById('gateOk').textContent='Entrer'; document.getElementById('gateInput').placeholder='Code'; }
+    document.getElementById('gateConfirmWrap').classList.add('hidden'); // plus de création de code ici
+    document.getElementById('gateTitle').textContent='Espace producteur';
+    if(state.hasPin===false){
+      document.getElementById('gateMsg').textContent='Aucun code d\'accès n\'est défini. Définissez-le dans votre Google Sheet (onglet « Config », ligne « pin »), puis revenez ici.';
+      document.getElementById('gateInput').style.display='none';
+      document.getElementById('gateOk').style.display='none';
+    }else{
+      document.getElementById('gateMsg').textContent='Entrez votre code d\'accès.';
+      document.getElementById('gateInput').style.display='';
+      document.getElementById('gateOk').style.display='';
+      document.getElementById('gateOk').textContent='Entrer';
+      document.getElementById('gateInput').placeholder='Code';
+    }
     document.getElementById('gateOverlay').classList.add('show');
-    setTimeout(function(){ document.getElementById('gateInput').focus(); },60);
+    setTimeout(function(){ var i=document.getElementById('gateInput'); if(i.style.display!=='none') i.focus(); },60);
   }
   function closeGate(){ document.getElementById('gateOverlay').classList.remove('show'); }
-  function submitGate(){
-    var err=document.getElementById('gateErr'), v=document.getElementById('gateInput').value.trim();
-    if(gateMode==='create'){
-      var c=document.getElementById('gateConfirm').value.trim();
-      if(v.length<3){ err.textContent='Le code doit faire au moins 3 caractères.'; return; }
-      if(v!==c){ err.textContent='Les deux codes ne correspondent pas.'; return; }
-      state.pin=v; DB.setPin(v); state.isAdmin=true; closeGate(); showAdminView(); toast('Code créé. Notez-le bien !');
-    }else{
-      if(v!==state.pin){ err.textContent='Code incorrect.'; return; }
-      state.isAdmin=true; closeGate(); showAdminView();
-    }
+  async function submitGate(){
+    var err=document.getElementById('gateErr'), btn=document.getElementById('gateOk');
+    var v=document.getElementById('gateInput').value.trim();
+    if(!v){ err.textContent='Entrez votre code.'; return; }
+    err.textContent=''; btn.disabled=true; btn.textContent='Vérification…';
+    try{
+      var r=await DB.checkPin(v);
+      if(r && r.noPin){ err.textContent='Aucun code défini. À faire dans l\'onglet Config du Google Sheet.'; return; }
+      if(r && r.ok){ state.isAdmin=true; state.sessionPin=v; closeGate(); showAdminView(); return; }
+      err.textContent='Code incorrect.';
+    }catch(e){ err.textContent='Connexion impossible. Réessayez.'; }
+    finally{ btn.disabled=false; btn.textContent='Entrer'; }
   }
 
   /* ---------- Toast ---------- */
@@ -1004,8 +1050,7 @@
     document.getElementById('gateOk').addEventListener('click',submitGate);
     document.getElementById('closeGate').addEventListener('click',closeGate);
     document.getElementById('cancelGate').addEventListener('click',closeGate);
-    document.getElementById('gateInput').addEventListener('keydown',function(e){ if(e.key==='Enter'){ if(gateMode==='create') document.getElementById('gateConfirm').focus(); else submitGate(); } });
-    document.getElementById('gateConfirm').addEventListener('keydown',function(e){ if(e.key==='Enter') submitGate(); });
+    document.getElementById('gateInput').addEventListener('keydown',function(e){ if(e.key==='Enter') submitGate(); });
     document.getElementById('gateOverlay').addEventListener('click',function(e){ if(e.target===this) closeGate(); });
 
     // admin
